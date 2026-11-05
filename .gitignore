@@ -1,0 +1,21 @@
+# Build output / archives
+*.zip
+*.7z
+
+# Editor and OS noise
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Logs and transcripts from test runs
+*.log
+*.txt
+!requirements.txt
+
+# Local copies of real credentials — never commit these
+*.secret
+*.token
+secrets/

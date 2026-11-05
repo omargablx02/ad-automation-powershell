@@ -1,0 +1,8 @@
+Name,Path
+Corporate_HQ,"DC=company,DC=local"
+IT_Department,"OU=Corporate_HQ,DC=company,DC=local"
+Human_Resources,"OU=Corporate_HQ,DC=company,DC=local"
+Finance_Accounting,"OU=Corporate_HQ,DC=company,DC=local"
+Sales_Marketing,"OU=Corporate_HQ,DC=company,DC=local"
+Production_Users,"OU=IT_Department,OU=Corporate_HQ,DC=company,DC=local"
+Admin_Accounts,"OU=IT_Department,OU=Corporate_HQ,DC=company,DC=local"
