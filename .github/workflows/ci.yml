@@ -46,12 +46,30 @@ jobs:
       - name: Lint
         shell: pwsh
         run: |
-          $results = Invoke-ScriptAnalyzer -Path . -Recurse -Settings ./PSScriptAnalyzerSettings.psd1
-          if ($results) {
+          $scripts = Get-ChildItem -Path . -Filter *.ps1 -Recurse |
+                     Where-Object { $_.DirectoryName -notlike '*\tests' }
+          $results = @()
+          foreach ($script in $scripts) {
+              $results += Invoke-ScriptAnalyzer -Path $script.FullName -Settings ./PSScriptAnalyzerSettings.psd1
+          }
+          if ($results.Count -gt 0) {
               $results | Format-Table RuleName, Severity, ScriptName, Line, Message -AutoSize -Wrap
               exit 1
           }
-          Write-Host 'PSScriptAnalyzer: no findings.'
+          Write-Host "PSScriptAnalyzer: no findings in $($scripts.Count) scripts."
+
+      - name: Install Pester
+        shell: pwsh
+        run: Install-Module Pester -Scope CurrentUser -Force -SkipPublisherCheck -MinimumVersion 5.0 -ErrorAction Stop
+
+      - name: Run Pester tests
+        shell: pwsh
+        run: |
+          $config = New-PesterConfiguration
+          $config.Run.Path = './tests'
+          $config.Run.Exit = $true
+          $config.Output.Verbosity = 'Detailed'
+          Invoke-Pester -Configuration $config
 
       - name: Validate the sample CSVs
         shell: pwsh

@@ -4,6 +4,23 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] - 2026-11-05
+
+### Added
+
+- Pester 5 test suite (`tests/AdAutomation.Tests.ps1`) covering all eight scripts with
+  in-memory AD cmdlet stubs — 31 tests, no domain controller required.
+- Pester step in the CI workflow, alongside the existing parse, lint and CSV checks.
+
+### Fixed
+
+- `Auto_OU.ps1` now orders rows by OU depth and then by path length, so a parent is
+  always queued before its children.
+- `Auto_OU.ps1` validates every row before creating anything: empty `Name`/`Path`, an
+  invalid character in `Name`, a leftover `DC=company` placeholder, or a path outside
+  the current domain aborts the run with the row numbers listed.
+- `Remove_Computer.ps1` no longer asks the Y/N question when `-WhatIf` is used.
+
 ## [1.0.0] - 2026-11-05
 
 ### Added

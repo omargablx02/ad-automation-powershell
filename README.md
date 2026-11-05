@@ -136,7 +136,7 @@ writing anything.
 | Control | Scripts | What it does |
 |---|---|---|
 | Checks first | all | Looks the object up and reports `[SKIP]` instead of throwing "already exists" |
-| `-WhatIf` | all | Shows what would be created, moved or deleted, changes nothing |
+| `-WhatIf` | all | Shows what would be created, moved or deleted, changes nothing; skips passwords and Y/N prompts |
 | `-Confirm` | all | Asks before **each** object instead of running the batch |
 | Typed `Y` | `Remove_Computer.ps1` | Nothing is deleted unless the admin answers `Y` |
 | `-Force` | `Remove_Computer.ps1` | Skips the typed confirmation — only for unattended runs |
@@ -170,8 +170,11 @@ Human_Resources,"OU=Corporate_HQ,DC=company,DC=local"
 ```
 
 `Auto_OU.ps1` replaces the literal `DC=company,DC=local` with the domain of the machine
-it runs on (`(Get-ADDomain).DistinguishedName`), sorts rows by path length so parents
-exist before children, and creates each OU with accidental-deletion protection on.
+it runs on (`(Get-ADDomain).DistinguishedName`), sorts rows by OU depth and then by path
+length so parents exist before children, and creates each OU with accidental-deletion
+protection on. Invalid rows (empty `Name`/`Path`, a leftover placeholder, a name with
+`,` `=` or `+`, or a path outside the current domain) abort the run before anything is
+created.
 
 ---
 
@@ -208,13 +211,20 @@ exist before children, and creates each OU with accidental-deletion protection o
 ├─ *.ps1                      eight scripts, one job each
 ├─ users.csv                  sample user input
 ├─ OUs_To_Create.csv          sample OU tree
+├─ tests/                     Pester 5 suite (mocked AD, no domain needed)
 ├─ docs/                      screenshots used in this README
 ├─ PSScriptAnalyzerSettings.psd1
-└─ .github/workflows/ci.yml   parse + lint on every push
+└─ .github/workflows/ci.yml   parse + lint + tests on every push
 ```
 
 CI runs on `windows-latest` for every push and pull request: it parses each script with
-**Windows PowerShell 5.1**, runs **PSScriptAnalyzer**, and validates both sample CSVs.
+**Windows PowerShell 5.1**, runs **PSScriptAnalyzer**, runs the **Pester** suite, and
+validates both sample CSVs.
+
+The suite covers all eight scripts: parent-before-child OU ordering, placeholder
+replacement, CSV validation, SAM/UPN construction, skip-if-exists, `-WhatIf` changing
+nothing, protection on create, and the unlock → move → re-lock sequence. The AD cmdlets
+are stubbed in memory, so no domain controller is required.
 
 ---
 
@@ -224,7 +234,8 @@ CI runs on `windows-latest` for every push and pull request: it parses each scri
   source/destination, delete confirmation). Every prompt can be bypassed by passing
   parameters, which is what makes unattended runs possible.
 - `Auto_OU.ps1` expects the placeholder `DC=company,DC=local` in the CSV. With your own
-  CSV, either keep the placeholder or write full DNs.
+  CSV, either keep the placeholder or write full DNs for the current domain; every row
+  is validated before the first OU is created.
 - `ADComputer.ps1` falls back to `CN=Computers` when the requested OU does not exist,
   and says so in yellow.
 - Computer names are validated against the 15-character NetBIOS limit before anything
@@ -239,6 +250,11 @@ The recorded walkthrough shows the whole flow end to end, including a logon on a
 Windows 7 client with an account the script created: 2:24, captioned, no audio.
 
 Lab: `bash.local` · Windows Server 2022 DC · Windows 7 client.
+
+The recording was made before the final cleanup pass, so a few frames still show the
+original working copies (hardcoded target paths, `exit` calls). The scripts in this repo
+are the hardened versions: detected domain, `-WhatIf`/`-Confirm`, validated CSVs,
+parameterised move, and the test suite above. Behaviour shown in the video is unchanged.
 
 ---
 

@@ -3,9 +3,14 @@
     Build an Organizational Unit tree from a CSV file.
 
 .DESCRIPTION
-    Reads Name,Path from a CSV, replaces the placeholder domain with the domain of
-    the current server, sorts parents before children, and creates every OU with
+    Reads Name,Path from a CSV, validates every row, replaces the placeholder
+    domain with the domain of the current server, sorts parents before children
+    (by OU depth, then path length), and creates every OU with
     accidental-deletion protection. Existing OUs are skipped.
+
+    The script stops before creating anything if the CSV has invalid rows:
+    empty Name/Path, a Name containing , = or +, a leftover "DC=company"
+    placeholder, or a Path that does not end with the current domain DN.
 
     CSV format:
         Name,Path
@@ -57,13 +62,59 @@ Write-Host "[INFO] Detected domain DN: $DomainDN" -ForegroundColor Cyan
 Write-Host "[INFO] CSV: $CsvPath ($($rows.Count) rows)" -ForegroundColor DarkGray
 Write-Host ''
 
-# Replace the placeholder domain, then sort so parents are created before children.
-$OUs = $rows | ForEach-Object {
-    [pscustomobject]@{
-        Name = $_.Name
-        Path = $_.Path -replace 'DC=company,DC=local', $DomainDN
+# Replace the placeholder domain, validate, then sort so parents come before children.
+$Placeholder = 'DC=company,DC=local'
+$OUs     = @()
+$invalid = @()
+$rowNo   = 0
+
+foreach ($row in $rows) {
+    $rowNo++
+    $Name = "$($row.Name)".Trim()
+    $Path = "$($row.Path)".Trim()
+
+    if ([string]::IsNullOrWhiteSpace($Name)) {
+        $invalid += "row $rowNo : Name is empty"
+        continue
     }
-} | Sort-Object { $_.Path.Length }
+    if ($Name -match '[,=+]') {
+        $invalid += "row $rowNo : Name '$Name' contains an invalid character (, = +)"
+        continue
+    }
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        $invalid += "row $rowNo ($Name) : Path is empty"
+        continue
+    }
+
+    $Path = $Path -replace [regex]::Escape($Placeholder), $DomainDN
+
+    if ($DomainDN -notmatch 'DC=company' -and $Path -match 'DC=company') {
+        $invalid += "row $rowNo ($Name) : placeholder domain was not fully replaced - check the Path"
+        continue
+    }
+    if ($Path -ne $DomainDN -and $Path -notmatch '^OU=') {
+        $invalid += "row $rowNo ($Name) : Path must be the domain DN or start with 'OU='"
+        continue
+    }
+    if (-not $Path.EndsWith($DomainDN, [System.StringComparison]::OrdinalIgnoreCase)) {
+        $invalid += "row $rowNo ($Name) : Path does not end with the domain DN ($DomainDN)"
+        continue
+    }
+
+    $OUs += [pscustomobject]@{
+        Name = $Name
+        Path = $Path
+    }
+}
+
+if ($invalid.Count -gt 0) {
+    throw ("CSV has invalid rows - nothing was created:`n  " + ($invalid -join "`n  "))
+}
+
+# Deeper paths (more OU= segments) are children, so they must be created later.
+$depth  = @{ Expression = { ([regex]::Matches($_.Path, 'OU=')).Count } }
+$length = @{ Expression = { $_.Path.Length } }
+$OUs = @($OUs | Sort-Object -Property $depth, $length)
 
 $created = 0
 $skipped = 0

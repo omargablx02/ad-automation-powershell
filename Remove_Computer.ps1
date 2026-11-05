@@ -49,7 +49,7 @@ try {
     $Computer = Get-ADComputer -Identity $ComputerName -ErrorAction Stop
     Write-Host "[INFO] Found: $($Computer.DistinguishedName)" -ForegroundColor Cyan
 
-    if (-not $Force) {
+    if (-not $Force -and -not $WhatIfPreference) {
         $answer = Read-Host 'Permanently delete this computer? (Y/N)'
         if ($answer -notin @('Y', 'y')) {
             Write-Host '[CANCELLED] Nothing was deleted.' -ForegroundColor Yellow
