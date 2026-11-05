@@ -10,13 +10,28 @@
 .PARAMETER ComputerName
     Name of the computer account. If omitted, the script asks for it.
 
+.PARAMETER Force
+    Skip the Y/N prompt. Intended for unattended runs - use with care.
+
 .EXAMPLE
     .\Remove_Computer.ps1 -ComputerName PC-DEMO-01
-#>
-#Requires -RunAsAdministrator
 
+.EXAMPLE
+    .\Remove_Computer.ps1 -ComputerName PC-DEMO-01 -WhatIf
+
+.EXAMPLE
+    .\Remove_Computer.ps1 -ComputerName PC-DEMO-01 -Force
+
+.NOTES
+    Requires RSAT-AD-PowerShell and an elevated session.
+#>
+#Requires -Version 5.1
+#Requires -RunAsAdministrator
+[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
 param(
-    [string]$ComputerName
+    [string]$ComputerName,
+
+    [switch]$Force
 )
 
 Import-Module ActiveDirectory -ErrorAction Stop
@@ -34,9 +49,15 @@ try {
     $Computer = Get-ADComputer -Identity $ComputerName -ErrorAction Stop
     Write-Host "[INFO] Found: $($Computer.DistinguishedName)" -ForegroundColor Cyan
 
-    $answer = Read-Host 'Permanently delete this computer? (Y/N)'
-    if ($answer -notin @('Y', 'y')) {
-        Write-Host '[CANCELLED] Nothing was deleted.' -ForegroundColor Yellow
+    if (-not $Force) {
+        $answer = Read-Host 'Permanently delete this computer? (Y/N)'
+        if ($answer -notin @('Y', 'y')) {
+            Write-Host '[CANCELLED] Nothing was deleted.' -ForegroundColor Yellow
+            return
+        }
+    }
+
+    if (-not $PSCmdlet.ShouldProcess($ComputerName, 'Remove Active Directory computer')) {
         return
     }
 

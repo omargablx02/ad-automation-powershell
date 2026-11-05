@@ -1,11 +1,15 @@
 # Active Directory Automation — PowerShell
 
-Eight small PowerShell scripts for the repetitive parts of AD administration:
-create users, create computers, move objects between OUs, and delete them safely.
+[![CI](https://github.com/omargablx02/ad-automation-powershell/actions/workflows/ci.yml/badge.svg)](https://github.com/omargablx02/ad-automation-powershell/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![PowerShell 5.1+](https://img.shields.io/badge/PowerShell-5.1%2B-5391FE?logo=powershell&logoColor=white)](https://learn.microsoft.com/powershell/)
 
-Every script detects the domain at runtime, checks what already exists, and ends the
-run with a per-object result. Built and recorded on Windows Server 2022 + a Windows 7
-client, domain `bash.local`.
+Eight PowerShell scripts for the repetitive parts of AD administration: create users,
+create computers, move objects between OUs, and delete them safely.
+
+Every script detects the domain at runtime, checks what already exists, supports
+`-WhatIf`, and ends the run with a per-object result. Built and recorded on
+Windows Server 2022 + a Windows 7 client, domain `bash.local`.
 
 <p align="center">
   <img src="docs/01-title.jpg" width="49%" alt="Title card of the walkthrough">
@@ -16,6 +20,11 @@ client, domain `bash.local`.
 
 The demo run: **11 users in a loop → 10 users from CSV → 5 computers → 6 OUs**, plus a
 real logon on the client with an account the script had just created.
+
+**Contents:** [What is in the box](#what-is-in-the-box) · [Requirements](#requirements) ·
+[Quick start](#quick-start) · [Sample output](#sample-output) · [Safety model](#safety-model) ·
+[CSV formats](#csv-formats) · [Design decisions](#design-decisions) · [Repo layout](#repo-layout) ·
+[Notes and limits](#notes-and-limits) · [Video](#video) · [License](#license)
 
 ---
 
@@ -46,8 +55,9 @@ real logon on the client with an account the script had just created.
 | Execution policy | `Set-ExecutionPolicy -Scope Process Bypass -Force` in the session you run from |
 | Host | A domain-joined machine that can reach a domain controller |
 
-Each script starts with `#Requires -RunAsAdministrator` and imports the AD module with
-`-ErrorAction Stop`, so it fails fast and clearly when the environment is wrong.
+Each script declares `#Requires -Version 5.1` and `#Requires -RunAsAdministrator`, and
+imports the AD module with `-ErrorAction Stop`, so it fails fast and clearly when the
+environment is wrong.
 
 ---
 
@@ -73,7 +83,7 @@ Set-Location C:\AD_Automation_Release
 # 4. A computer, protected on creation
 .\ADComputer.ps1 -ComputerName PC-IT-01 -OUName IT_Department
 
-# 5. Move it to another OU (interactive: source OU, destination OU, computer)
+# 5. Move it to another OU (prompts for anything you leave out)
 .\Move_ADComputer.ps1
 
 # 6. Delete it (interactive confirmation)
@@ -89,6 +99,47 @@ Set-Location C:\AD_Automation_Release
 `AddUser.ps1` and `AddUser_csv.ps1` ask for the account password with
 `Read-Host -AsSecureString`. Nothing is stored on disk and no password is hardcoded.
 
+Not sure yet? Run any of them with `-WhatIf` first:
+
+```powershell
+.\Auto_OU.ps1 -WhatIf
+.\AddUser.ps1 -StartAt 140 -Count 11 -WhatIf
+```
+
+---
+
+## Sample output
+
+```
+Domain    : bash.local
+Target OU : OU=Sales_Marketing,OU=Corporate_HQ,DC=bash,DC=local
+
+[ OK ] User140
+[ OK ] User141
+[SKIP] User142 already exists.
+[ OK ] User143
+...
+Created: 3   Skipped: 1   Failed: 0
+```
+
+`-WhatIf` prints the same checks and adds `Would create: N` to the summary, without
+writing anything.
+
+---
+
+## Safety model
+
+| Control | Scripts | What it does |
+|---|---|---|
+| Checks first | all | Looks the object up and reports `[SKIP]` instead of throwing "already exists" |
+| `-WhatIf` | all | Shows what would be created, moved or deleted, changes nothing |
+| `-Confirm` | all | Asks before **each** object instead of running the batch |
+| Typed `Y` | `Remove_Computer.ps1` | Nothing is deleted unless the admin answers `Y` |
+| `-Force` | `Remove_Computer.ps1` | Skips the typed confirmation — only for unattended runs |
+| Protection | OUs, computers | Created with `-ProtectedFromAccidentalDeletion $true` |
+| Unlock → act → re-lock | `Move_ADComputer.ps1` | Protection is lifted only for the move and enabled again on the target |
+| No stored secrets | all | Password is read once as a `SecureString`; new accounts must change it at logon |
+
 ---
 
 ## CSV formats
@@ -102,7 +153,8 @@ Mohamed,Mansour
 ```
 
 The SAM is `firstname_lastname` in lower case (`ahmed_hassan`) and the UPN is
-`sam@<domain DNS root>`. Duplicate names are skipped, not treated as errors.
+`sam@<domain DNS root>`. Duplicate names are skipped, not treated as errors. A CSV
+without a `Firstname` or `Lastname` column is rejected before any account is touched.
 
 **OUs_To_Create.csv**
 
@@ -119,40 +171,60 @@ exist before children, and creates each OU with accidental-deletion protection o
 
 ---
 
-## Why the scripts look like this
+## Design decisions
 
 1. **The domain is detected, never typed.** `Get-ADDomain` supplies the DN and the UPN
    suffix. There is no `DC=bash,DC=local` in the code, so the same folder works in
    another lab.
 2. **Check before writing.** Every create checks the object first and prints `[SKIP]`
-   instead of throwing "already exists". Re-running a script is safe.
+   instead of throwing. Re-running a script is safe.
 3. **Protection by default.** Computers and OUs are created with
    `-ProtectedFromAccidentalDeletion $true`. Deletion is an explicit act.
 4. **Unlock, act, re-lock.** A protected object cannot be moved or deleted;
    `Move_ADComputer.ps1` lifts protection only for the move and re-enables it on the
-   target. `Remove_Computer.ps1` lifts it only after a typed confirmation.
+   target. `Remove_Computer.ps1` lifts it only after confirmation.
 5. **One failure must not stop the batch.** Each object runs inside its own `try/catch`;
    a bad row is counted and the loop continues.
 6. **Every run prints a result.** `Created / Skipped / Failed`, or
    `Deleted / Not found / Failed`, so the operator does not have to read the transcript.
-7. **No stored credentials.** The password is read once as a `SecureString`, and
+7. **Parameters over prompts.** Anything a script asks for can also be passed on the
+   command line, so the same file works by hand and from a scheduled job.
+8. **No stored credentials.** The password is read once as a `SecureString`, and
    `ChangePasswordAtLogon` is forced for new accounts.
-8. **Names resolve to DNs.** OUs and objects are looked up by name and converted to a
+9. **Names resolve to DNs.** OUs and objects are looked up by name and converted to a
    distinguished name, so a typo gives a clear message instead of writing to the wrong
    container.
+
+---
+
+## Repo layout
+
+```
+.
+├─ *.ps1                      eight scripts, one job each
+├─ users.csv                  sample user input
+├─ OUs_To_Create.csv          sample OU tree
+├─ docs/                      screenshots used in this README
+├─ PSScriptAnalyzerSettings.psd1
+└─ .github/workflows/ci.yml   parse + lint on every push
+```
+
+CI runs on `windows-latest` for every push and pull request: it parses each script with
+**Windows PowerShell 5.1**, runs **PSScriptAnalyzer**, and validates both sample CSVs.
 
 ---
 
 ## Notes and limits
 
 - The scripts are interactive where a human decision is required (password, move
-  source/destination, delete confirmation). Wrap them or add parameters for fully
-  unattended runs.
+  source/destination, delete confirmation). Every prompt can be bypassed by passing
+  parameters, which is what makes unattended runs possible.
 - `Auto_OU.ps1` expects the placeholder `DC=company,DC=local` in the CSV. With your own
   CSV, either keep the placeholder or write full DNs.
-- `Remove_Computer.ps1` requires typing `Y`. Any other answer cancels and changes nothing.
 - `ADComputer.ps1` falls back to `CN=Computers` when the requested OU does not exist,
   and says so in yellow.
+- Computer names are validated against the 15-character NetBIOS limit before anything
+  is created.
 - Tested on Windows Server 2022 with Windows PowerShell 5.1.
 
 ---

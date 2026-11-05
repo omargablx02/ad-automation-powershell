@@ -18,12 +18,24 @@
 
 .EXAMPLE
     .\ADComputer.ps1 -ComputerName PC-IT-01 -OUName IT_Department
-#>
-#Requires -RunAsAdministrator
 
+.EXAMPLE
+    .\ADComputer.ps1 -ComputerName PC-IT-01 -WhatIf
+
+.NOTES
+    Requires RSAT-AD-PowerShell and an elevated session.
+#>
+#Requires -Version 5.1
+#Requires -RunAsAdministrator
+[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
 param(
+    [ValidateNotNullOrEmpty()]
+    [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9-]{0,14}$')]
     [string]$ComputerName = 'PC-DEMO-01',
+
+    [ValidateNotNullOrEmpty()]
     [string]$OUName = 'IT_Department',
+
     [string]$Description = 'Workstation created by ADComputer.ps1'
 )
 
@@ -43,12 +55,16 @@ Write-Host "Computer  : $ComputerName" -ForegroundColor Cyan
 Write-Host "Target OU : $TargetOU" -ForegroundColor Cyan
 Write-Host ''
 
-try {
-    if (Get-ADComputer -Filter "Name -eq '$ComputerName'" -ErrorAction SilentlyContinue) {
-        Write-Host "[SKIP] $ComputerName already exists." -ForegroundColor Yellow
-        return
-    }
+if (Get-ADComputer -Filter "Name -eq '$ComputerName'" -ErrorAction SilentlyContinue) {
+    Write-Host "[SKIP] $ComputerName already exists." -ForegroundColor Yellow
+    return
+}
 
+if (-not $PSCmdlet.ShouldProcess($ComputerName, "Create computer object in $TargetOU")) {
+    return
+}
+
+try {
     New-ADComputer -Name $ComputerName `
                    -SamAccountName $ComputerName `
                    -Path $TargetOU `

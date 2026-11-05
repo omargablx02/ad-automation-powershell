@@ -1,0 +1,15 @@
+# Normalise line endings so the scripts behave the same on every clone.
+* text=auto
+
+*.ps1  text eol=crlf
+*.psm1 text eol=crlf
+*.psd1 text eol=crlf
+*.csv  text eol=crlf
+
+*.md   text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+
+*.jpg  binary
+*.png  binary
+*.zip  binary

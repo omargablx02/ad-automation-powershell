@@ -17,10 +17,18 @@
 
 .EXAMPLE
     .\Auto_OU.ps1 -CsvPath .\OUs_To_Create.csv
-#>
-#Requires -RunAsAdministrator
 
+.EXAMPLE
+    .\Auto_OU.ps1 -WhatIf
+
+.NOTES
+    Requires RSAT-AD-PowerShell and an elevated session.
+#>
+#Requires -Version 5.1
+#Requires -RunAsAdministrator
+[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
 param(
+    [ValidateNotNullOrEmpty()]
     [string]$CsvPath = (Join-Path $PSScriptRoot 'OUs_To_Create.csv')
 )
 
@@ -30,14 +38,27 @@ if (-not (Test-Path -Path $CsvPath)) {
     throw "CSV not found: $CsvPath"
 }
 
+$rows = @(Import-Csv -Path $CsvPath)
+
+if ($rows.Count -eq 0) {
+    throw "CSV is empty: $CsvPath"
+}
+
+$columns = $rows[0].PSObject.Properties.Name
+foreach ($required in 'Name', 'Path') {
+    if ($columns -notcontains $required) {
+        throw "CSV is missing the '$required' column. Expected: Name,Path"
+    }
+}
+
 $DomainDN = (Get-ADDomain).DistinguishedName
 
 Write-Host "[INFO] Detected domain DN: $DomainDN" -ForegroundColor Cyan
-Write-Host "[INFO] CSV: $CsvPath" -ForegroundColor DarkGray
+Write-Host "[INFO] CSV: $CsvPath ($($rows.Count) rows)" -ForegroundColor DarkGray
 Write-Host ''
 
 # Replace the placeholder domain, then sort so parents are created before children.
-$OUs = Import-Csv -Path $CsvPath | ForEach-Object {
+$OUs = $rows | ForEach-Object {
     [pscustomobject]@{
         Name = $_.Name
         Path = $_.Path -replace 'DC=company,DC=local', $DomainDN
@@ -47,6 +68,7 @@ $OUs = Import-Csv -Path $CsvPath | ForEach-Object {
 $created = 0
 $skipped = 0
 $failed  = 0
+$planned = 0
 
 foreach ($OU in $OUs) {
 
@@ -55,6 +77,11 @@ foreach ($OU in $OUs) {
     if (Get-ADOrganizationalUnit -Filter "DistinguishedName -eq '$TargetDN'" -ErrorAction SilentlyContinue) {
         $skipped++
         Write-Host "[SKIP] $($OU.Name) (already exists)" -ForegroundColor Yellow
+        continue
+    }
+
+    if (-not $PSCmdlet.ShouldProcess($TargetDN, 'Create organizational unit')) {
+        $planned++
         continue
     }
 
@@ -73,4 +100,6 @@ foreach ($OU in $OUs) {
 }
 
 Write-Host ''
-Write-Host "Created: $created   Skipped: $skipped   Failed: $failed" -ForegroundColor Cyan
+$summary = "Created: $created   Skipped: $skipped   Failed: $failed"
+if ($planned -gt 0) { $summary += "   Would create: $planned" }
+Write-Host $summary -ForegroundColor Cyan
