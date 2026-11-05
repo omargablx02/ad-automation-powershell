@@ -1,6 +1,7 @@
 # Active Directory Automation — PowerShell
 
 [![CI](https://github.com/omargablx02/ad-automation-powershell/actions/workflows/ci.yml/badge.svg)](https://github.com/omargablx02/ad-automation-powershell/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/omargablx02/ad-automation-powershell?display_name=tag&sort=semver)](https://github.com/omargablx02/ad-automation-powershell/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PowerShell 5.1+](https://img.shields.io/badge/PowerShell-5.1%2B-5391FE?logo=powershell&logoColor=white)](https://learn.microsoft.com/powershell/)
 
@@ -66,6 +67,9 @@ environment is wrong.
 Copy the folder to the server (for example `C:\AD_Automation_Release`), then run from an
 elevated PowerShell inside it. CSV paths default to `$PSScriptRoot`, so the folder works
 from any location.
+
+Prefer a download over a clone? Grab the zip from the
+[latest release](https://github.com/omargablx02/ad-automation-powershell/releases/latest).
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass -Force
