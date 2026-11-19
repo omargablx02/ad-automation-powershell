@@ -851,4 +851,49 @@ Describe 'Copy-ADUser.ps1' {
         @($script:AD.Calls | Where-Object Cmdlet -eq 'New-ADUser').Count | Should -Be 0
         Test-Path -LiteralPath (Join-Path $script:HomeRoot 'ea') | Should -BeFalse
     }
+
+    It 'repairs an existing home folder whose ACL still carries the old SID' {
+        $homePath = Join-Path $script:HomeRoot 'ea'
+        New-Item -Path $homePath -ItemType Directory -Force | Out-Null
+
+        # Simulate a folder left behind by a deleted account: the ACE points to
+        # a dead SID, not to the SID the recreated account will receive.
+        $deadSid    = 'S-1-5-21-3428363389-4016043599-1048985442-1777'
+        $acl        = Get-Acl -LiteralPath $homePath
+        $inheritance = [System.Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit'
+        $propagation = [System.Security.AccessControl.PropagationFlags]::None
+        $allow       = [System.Security.AccessControl.AccessControlType]::Allow
+        $deadIdentity = [System.Security.Principal.SecurityIdentifier]::new($deadSid)
+        # Keep access for the test runner so Pester can remove TestDrive afterwards.
+        # Inheritance stays on: a protected DACL needs SeSecurityPrivilege to
+        # modify again, which a normal test process does not have.
+        $runnerIdentity = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+        foreach ($identity in @($deadIdentity, $runnerIdentity)) {
+            $acl.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new(
+                $identity, 'FullControl', $inheritance, $propagation, $allow))
+        }
+        Set-Acl -LiteralPath $homePath -AclObject $acl
+        $before = @((Get-Acl -LiteralPath $homePath).Access).Count
+
+        Invoke-AdScript 'Copy-ADUser.ps1' @{
+            SourceUser     = 'ahmed_ali'
+            SamAccountName = 'ea'
+            GivenName      = 'Eslam'
+            Surname        = 'Ali'
+            Password       = $script:Password
+            HomeRoot       = $script:HomeRoot
+            ProfileRoot    = $script:ProfileRoot
+        }
+
+        $newSid = (Get-ADUser -Identity 'ea').SID.Value
+        $after  = Get-Acl -LiteralPath $homePath
+        $granted = @($after.Access | Where-Object {
+            $_.AccessControlType -eq 'Allow' -and
+            $_.IdentityReference.Translate(
+                [System.Security.Principal.SecurityIdentifier]).Value -eq $newSid
+        })
+        $granted.Count | Should -Be 1
+        $granted[0].FileSystemRights.ToString() | Should -Match 'FullControl'
+        @($after.Access).Count | Should -BeGreaterThan $before
+    }
 }

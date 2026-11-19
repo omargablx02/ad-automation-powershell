@@ -165,7 +165,7 @@ function Grant-FolderAccess {
         $acl.AddAccessRule($rule)
     }
 
-    Set-Acl -Path $Path -AclObject $acl
+    Set-Acl -Path $Path -AclObject $acl -ErrorAction Stop
 }
 
 function Add-FolderAccess {
@@ -176,7 +176,8 @@ function Add-FolderAccess {
     #>
     param(
         [Parameter(Mandatory)][string]$Path,
-        [Parameter(Mandatory)][string]$Account
+        [Parameter(Mandatory)][string]$Account,
+        [string]$Sid
     )
 
     $acl = Get-Acl -LiteralPath $Path
@@ -185,11 +186,20 @@ function Add-FolderAccess {
     $propagation = [System.Security.AccessControl.PropagationFlags]::None
     $allow       = [System.Security.AccessControl.AccessControlType]::Allow
 
-    $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-        $Account, 'FullControl', $inheritance, $propagation, $allow)
+    # Prefer the account SID when we have it: the file server may not be able to
+    # resolve "DOMAIN\sam" yet, but the SID is already known from the new account.
+    if ($Sid) {
+        $identity = [System.Security.Principal.SecurityIdentifier]::new($Sid)
+        $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+            $identity, 'FullControl', $inheritance, $propagation, $allow)
+    }
+    else {
+        $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+            $Account, 'FullControl', $inheritance, $propagation, $allow)
+    }
     $acl.AddAccessRule($rule)
 
-    Set-Acl -LiteralPath $Path -AclObject $acl
+    Set-Acl -LiteralPath $Path -AclObject $acl -ErrorAction Stop
 }
 
 function Test-FolderAccess {
@@ -550,7 +560,7 @@ if ($params.ContainsKey('HomeDirectory')) {
 
             if ($PSCmdlet.ShouldProcess($homePath, 'Grant the new account access to the existing home folder')) {
                 try {
-                    Add-FolderAccess -Path $homePath -Account $homeAccount
+                    Add-FolderAccess -Path $homePath -Account $homeAccount -Sid $NewUserSid
                     Write-Host "[ OK ] Access granted on the existing home folder: $homePath" -ForegroundColor Green
                 }
                 catch {
@@ -585,7 +595,7 @@ if ($params.ContainsKey('ProfilePath')) {
 
             if ($PSCmdlet.ShouldProcess($profilePath, 'Grant the new account access to the existing profile folder')) {
                 try {
-                    Add-FolderAccess -Path $profilePath -Account $profileAccount
+                    Add-FolderAccess -Path $profilePath -Account $profileAccount -Sid $NewUserSid
                     Write-Host "[ OK ] Access granted on the existing profile folder: $profilePath" -ForegroundColor Green
                 }
                 catch {

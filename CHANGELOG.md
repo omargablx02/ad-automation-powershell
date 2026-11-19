@@ -22,9 +22,13 @@ project uses [Semantic Versioning](https://semver.org/).
 - A folder that already exists with a stale ACL is repaired instead of skipped: the
   script compares the SID on the folder with the new account's SID, reports `[WARN]` and
   adds the missing entry, so an account recreated with a new RID still reaches its files.
+  The missing entry is granted by SID, not by `DOMAIN\sam`, so the repair does not depend
+  on the file server resolving the new account name yet.
+- Folder ACL writes now stop on error instead of reporting success when `Set-Acl` failed.
 - Interactive runs ask for the two folder roots with a default of `\\<this computer>\Home`
   and `\\<this computer>\Profiles`; a single dash skips that folder.
-- Seven Pester tests for the copy rules — 38 tests in total.
+- Eight Pester tests for the copy rules, including the stale-SID folder case — 39 tests
+  in total.
 
 ### Changed
 
