@@ -5,8 +5,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PowerShell 5.1+](https://img.shields.io/badge/PowerShell-5.1%2B-5391FE?logo=powershell&logoColor=white)](https://learn.microsoft.com/powershell/)
 
-Eight PowerShell scripts for the repetitive parts of AD administration: create users,
-create computers, move objects between OUs, and delete them safely.
+Nine PowerShell scripts for the repetitive parts of AD administration: create users,
+copy a user, create computers, move objects between OUs, and delete them safely.
 
 Every script detects the domain at runtime, checks what already exists, supports
 `-WhatIf`, and ends the run with a per-object result. Built and recorded on
@@ -36,6 +36,7 @@ real logon on the client with an account the script had just created.
 | `Auto_OU.ps1` | Builds an OU tree from `OUs_To_Create.csv`, parents first |
 | `AddUser.ps1` | Creates numbered users (`User140` … `User150`) in a chosen OU |
 | `AddUser_csv.ps1` | Creates users from `users.csv` (Firstname, Lastname) |
+| `Copy-ADUser.ps1` | Clones a template user: same OU, attributes, logon hours and groups — never the password, the SID or a privileged group |
 | `ADComputer.ps1` | Creates a computer object, protected from accidental deletion |
 | `Move_ADComputer.ps1` | Moves a computer between OUs, protection handled for you |
 | `Remove_Computer.ps1` | Deletes a computer safely: unlock → confirm → remove |
@@ -84,24 +85,30 @@ Set-Location C:\AD_Automation_Release
 # 3. Users from CSV
 .\AddUser_csv.ps1 -CsvPath .\users.csv -OUName Sales_Marketing
 
-# 4. A computer, protected on creation
+# 4. A new user cloned from a template account (prompts for everything else)
+.\Copy-ADUser.ps1 -SourceUser ahmed_ali -SamAccountName ea -GivenName Eslam -Surname Ali
+
+# 5. A computer, protected on creation
 .\ADComputer.ps1 -ComputerName PC-IT-01 -OUName IT_Department
 
-# 5. Move it to another OU (prompts for anything you leave out)
+# 6. Move it to another OU (prompts for anything you leave out)
 .\Move_ADComputer.ps1
 
-# 6. Delete it (interactive confirmation)
+# 7. Delete it (interactive confirmation)
 .\Remove_Computer.ps1 -ComputerName PC-IT-01
 
-# 7. Clean up the numbered users
+# 8. Clean up the numbered users
 .\Remove.ps1 -StartAt 140 -Count 11
 
-# 8. Clean up the CSV users
+# 9. Clean up the CSV users
 .\Remove_csv.ps1 -CsvPath .\users.csv
 ```
 
-`AddUser.ps1` and `AddUser_csv.ps1` ask for the account password with
-`Read-Host -AsSecureString`. Nothing is stored on disk and no password is hardcoded.
+`AddUser.ps1`, `AddUser_csv.ps1` and `Copy-ADUser.ps1` ask for the account password
+with `Read-Host -AsSecureString`. Nothing is stored on disk and no password is
+hardcoded. `Copy-ADUser.ps1` also prompts for the two folder roots and offers
+`\\<this computer>\Home` and `\\<this computer>\Profiles` as defaults: press Enter to
+accept, or type a single dash to skip that folder.
 
 Not sure yet? Run any of them with `-WhatIf` first:
 
@@ -143,6 +150,9 @@ writing anything.
 | Protection | OUs, computers | Created with `-ProtectedFromAccidentalDeletion $true` |
 | Unlock → act → re-lock | `Move_ADComputer.ps1` | Protection is lifted only for the move and enabled again on the target |
 | No stored secrets | all | Password is read once as a `SecureString`; new accounts must change it at logon |
+| No copied secrets | `Copy-ADUser.ps1` | Copies attributes, logon hours and groups — never the password or the SID |
+| Privileged groups blocked | `Copy-ADUser.ps1` | Thirteen built-in privileged groups are matched by SID and skipped, never copied |
+| Folder permissions | `Copy-ADUser.ps1` | New home and profile folders break inheritance and grant only the new user, Administrators and SYSTEM; an existing folder left with a dead SID is repaired instead of skipped |
 
 ---
 
@@ -208,7 +218,7 @@ created.
 
 ```
 .
-├─ *.ps1                      eight scripts, one job each
+├─ *.ps1                      nine scripts, one job each
 ├─ users.csv                  sample user input
 ├─ OUs_To_Create.csv          sample OU tree
 ├─ tests/                     Pester 5 suite (mocked AD, no domain needed)
@@ -221,10 +231,11 @@ CI runs on `windows-latest` for every push and pull request: it parses each scri
 **Windows PowerShell 5.1**, runs **PSScriptAnalyzer**, runs the **Pester** suite, and
 validates both sample CSVs.
 
-The suite covers all eight scripts: parent-before-child OU ordering, placeholder
+The suite covers all nine scripts: parent-before-child OU ordering, placeholder
 replacement, CSV validation, SAM/UPN construction, skip-if-exists, `-WhatIf` changing
-nothing, protection on create, and the unlock → move → re-lock sequence. The AD cmdlets
-are stubbed in memory, so no domain controller is required.
+nothing, protection on create, the unlock → move → re-lock sequence, and the copy rules
+(no password, no SID, no privileged group, folder naming). The AD cmdlets are stubbed in
+memory, so no domain controller is required.
 
 ---
 
@@ -240,6 +251,12 @@ are stubbed in memory, so no domain controller is required.
   and says so in yellow.
 - Computer names are validated against the 15-character NetBIOS limit before anything
   is created.
+- `Copy-ADUser.ps1` names the AD object after the person (`Firstname_Lastname`) while the
+  SAM stays short (`ea`). The home folder follows the SAM (`Home\ea`); the roaming
+  profile follows the full name (`Profiles\Eslam_Ali`), which is the per-user
+  `profilePath` form — pointing `profilePath` at the share root makes Windows append
+  `.V2`/`.V6` instead. Folder contents are never copied: a profile holds `NTUSER.DAT`,
+  `AppData` and saved credentials, and the new user starts clean.
 - Tested on Windows Server 2022 with Windows PowerShell 5.1.
 
 ---

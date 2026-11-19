@@ -16,6 +16,7 @@ BeforeAll {
             OUs       = [System.Collections.Generic.List[object]]::new()
             Users     = @{}
             Computers = @{}
+            Groups    = @{}
             Calls     = [System.Collections.Generic.List[object]]::new()
             Prompts   = [System.Collections.Generic.List[string]]::new()
         }
@@ -88,6 +89,7 @@ namespace Microsoft.ActiveDirectory.Management {
         [pscustomobject]@{
             DNSRoot           = $script:AD.DNSRoot
             DistinguishedName = $script:AD.DomainDN
+            NetBIOSName       = 'BASH'
         }
     }
 
@@ -122,7 +124,7 @@ namespace Microsoft.ActiveDirectory.Management {
 
     function Get-ADUser {
         [CmdletBinding()]
-        param([string]$Filter, [string]$Identity)
+        param([string]$Filter, [string]$Identity, [string[]]$Properties)
 
         if ($Identity) {
             if (-not $script:AD.Users.ContainsKey($Identity)) {
@@ -133,13 +135,55 @@ namespace Microsoft.ActiveDirectory.Management {
         if ($Filter -match "SamAccountName -eq '([^']*)'") {
             $sam = $Matches[1]
             if ($script:AD.Users.ContainsKey($sam)) { return $script:AD.Users[$sam] }
+            return
         }
+        if ($Filter -match "UserPrincipalName -eq '([^']*)'") {
+            $upn = $Matches[1]
+            $script:AD.Users.Values | Where-Object UserPrincipalName -eq $upn | Select-Object -First 1
+        }
+    }
+
+    function Get-ADGroup {
+        [CmdletBinding()]
+        param([string]$Filter, [string]$Identity)
+
+        if ($Identity) {
+            return $script:AD.Groups[$Identity]
+        }
+        if ($Filter -match "Name -eq '([^']*)'") {
+            $name = $Matches[1]
+            $script:AD.Groups.Values | Where-Object Name -eq $name | Select-Object -First 1
+        }
+    }
+
+    function Add-ADGroupMember {
+        [CmdletBinding()]
+        param([object]$Identity, [string[]]$Members)
+
+        $script:AD.Calls.Add([pscustomobject]@{
+            Cmdlet  = 'Add-ADGroupMember'
+            Group   = $Identity.Name
+            Members = $Members -join ','
+        })
+    }
+
+    function Set-ADUser {
+        [CmdletBinding()]
+        param([string]$Identity, [hashtable]$Replace, [string]$LogonWorkstations)
+
+        $script:AD.Calls.Add([pscustomobject]@{
+            Cmdlet    = 'Set-ADUser'
+            Sam       = $Identity
+            Replace   = $Replace
+            Workstation = $LogonWorkstations
+        })
     }
 
     function New-ADUser {
         [CmdletBinding()]
         param(
             [string]$Name,
+            [string]$DisplayName,
             [string]$SamAccountName,
             [string]$UserPrincipalName,
             [string]$GivenName,
@@ -147,19 +191,52 @@ namespace Microsoft.ActiveDirectory.Management {
             [string]$Path,
             [securestring]$AccountPassword,
             [bool]$Enabled,
-            [bool]$ChangePasswordAtLogon
+            [bool]$ChangePasswordAtLogon,
+            [bool]$CannotChangePassword,
+            [bool]$PasswordNeverExpires,
+            [datetime]$AccountExpirationDate,
+            [string]$Title,
+            [string]$Department,
+            [string]$Company,
+            [object]$Manager,
+            [string]$Office,
+            [string]$StreetAddress,
+            [string]$City,
+            [string]$State,
+            [string]$PostalCode,
+            [string]$Country,
+            [string]$OfficePhone,
+            [string]$Description,
+            [string]$HomeDirectory,
+            [string]$HomeDrive,
+            [string]$ProfilePath
         )
         $script:AD.Calls.Add([pscustomobject]@{
-            Cmdlet = 'New-ADUser'
-            Sam    = $SamAccountName
-            UPN    = $UserPrincipalName
-            Path   = $Path
-            Name   = $Name
+            Cmdlet            = 'New-ADUser'
+            Sam               = $SamAccountName
+            UPN               = $UserPrincipalName
+            Path              = $Path
+            Name              = $Name
+            DisplayName       = $DisplayName
+            Title             = $Title
+            Department        = $Department
+            Company           = $Company
+            Manager           = $Manager
+            Office            = $Office
+            HomeDirectory     = $HomeDirectory
+            HomeDrive         = $HomeDrive
+            ProfilePath       = $ProfilePath
+            ChangePassword    = $ChangePasswordAtLogon
+            PasswordNeverExpires = $PasswordNeverExpires
         })
         $script:AD.Users[$SamAccountName] = [pscustomobject]@{
             SamAccountName    = $SamAccountName
             UserPrincipalName = $UserPrincipalName
+            Name              = $Name
             DistinguishedName = "CN=$Name,$Path"
+            SID               = [pscustomobject]@{
+                Value = 'S-1-5-21-3428363389-4016043599-1048985442-' + (1000 + $script:AD.Users.Count)
+            }
         }
     }
 
@@ -590,5 +667,188 @@ Describe 'Remove_Computer.ps1' {
         Invoke-AdScript 'Remove_Computer.ps1' @{}
 
         @($script:AD.Calls | Where-Object Cmdlet -eq 'Remove-ADComputer').Count | Should -Be 0
+    }
+}
+
+Describe 'Copy-ADUser.ps1' {
+
+    BeforeEach {
+        Reset-FakeAD
+
+        $script:AD.Groups['CN=SOC_Team,OU=Groups,DC=bash,DC=local'] = [pscustomobject]@{
+            Name              = 'SOC_Team'
+            DistinguishedName = 'CN=SOC_Team,OU=Groups,DC=bash,DC=local'
+            SID               = [pscustomobject]@{ Value = 'S-1-5-21-3428363389-4016043599-1048985442-2001' }
+        }
+        $script:AD.Groups['CN=Domain Admins,CN=Users,DC=bash,DC=local'] = [pscustomobject]@{
+            Name              = 'Domain Admins'
+            DistinguishedName = 'CN=Domain Admins,CN=Users,DC=bash,DC=local'
+            SID               = [pscustomobject]@{ Value = 'S-1-5-21-3428363389-4016043599-1048985442-512' }
+        }
+
+        $script:AD.Users['ahmed_ali'] = [pscustomobject]@{
+            SamAccountName      = 'ahmed_ali'
+            UserPrincipalName   = 'ahmed_ali@bash.local'
+            DistinguishedName   = 'CN=Ahmed Ali,OU=SOC,DC=bash,DC=local'
+            MemberOf            = @(
+                'CN=SOC_Team,OU=Groups,DC=bash,DC=local'
+                'CN=Domain Admins,CN=Users,DC=bash,DC=local'
+            )
+            Title               = 'IT Support Specialist'
+            Department          = 'IT'
+            Company             = 'Abd El Aziz El Sallab'
+            Manager             = 'CN=IT Manager,OU=IT,DC=bash,DC=local'
+            Office              = 'HQ - Cairo'
+            StreetAddress       = '12 Nile Street'
+            City                = 'Cairo'
+            State               = 'Cairo'
+            PostalCode          = '11511'
+            Country             = 'EG'
+            OfficePhone         = '+20 2 1234 5678'
+            Description         = 'Template account'
+            logonHours          = $null
+            userWorkstations    = $null
+            AccountExpirationDate = $null
+            PasswordNeverExpires  = $false
+            CannotChangePassword  = $false
+            Enabled             = $true
+        }
+
+        $script:Password = ConvertTo-SecureString 'P@ssw0rd-Only-For-Tests' -AsPlainText -Force
+        $run = [guid]::NewGuid().ToString('N').Substring(0, 8)
+        $script:HomeRoot = Join-Path $TestDrive "Home-$run"
+        $script:ProfileRoot = Join-Path $TestDrive "Profiles-$run"
+    }
+
+    It 'creates the account named after the person inside the template OU' {
+        Invoke-AdScript 'Copy-ADUser.ps1' @{
+            SourceUser     = 'ahmed_ali'
+            SamAccountName = 'ea'
+            GivenName      = 'Eslam'
+            Surname        = 'Ali'
+            Password       = $script:Password
+            HomeRoot       = $script:HomeRoot
+            ProfileRoot    = $script:ProfileRoot
+        }
+
+        $created = @($script:AD.Calls | Where-Object Cmdlet -eq 'New-ADUser')
+        $created.Count | Should -Be 1
+        $created[0].Name | Should -Be 'Eslam_Ali'
+        $created[0].Sam | Should -Be 'ea'
+        $created[0].UPN | Should -Be 'ea@bash.local'
+        $created[0].Path | Should -Be 'OU=SOC,DC=bash,DC=local'
+        $created[0].ChangePassword | Should -BeTrue
+    }
+
+    It 'names the home folder after the SAM and the profile after the full name' {
+        Invoke-AdScript 'Copy-ADUser.ps1' @{
+            SourceUser     = 'ahmed_ali'
+            SamAccountName = 'ea'
+            GivenName      = 'Eslam'
+            Surname        = 'Ali'
+            Password       = $script:Password
+            HomeRoot       = $script:HomeRoot
+            ProfileRoot    = $script:ProfileRoot
+        }
+
+        $created = @($script:AD.Calls | Where-Object Cmdlet -eq 'New-ADUser')
+        $created[0].HomeDirectory | Should -Be (Join-Path $script:HomeRoot 'ea')
+        $created[0].HomeDrive | Should -Be 'H:'
+        $created[0].ProfilePath | Should -Be (Join-Path $script:ProfileRoot 'Eslam_Ali')
+
+        Test-Path -LiteralPath (Join-Path $script:HomeRoot 'ea') | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $script:ProfileRoot 'Eslam_Ali') | Should -BeTrue
+    }
+
+    It 'copies the organisational attributes from the template' {
+        Invoke-AdScript 'Copy-ADUser.ps1' @{
+            SourceUser     = 'ahmed_ali'
+            SamAccountName = 'ea'
+            GivenName      = 'Eslam'
+            Surname        = 'Ali'
+            Password       = $script:Password
+            HomeRoot       = $script:HomeRoot
+            ProfileRoot    = $script:ProfileRoot
+        }
+
+        $created = @($script:AD.Calls | Where-Object Cmdlet -eq 'New-ADUser')
+        $created[0].Title | Should -Be 'IT Support Specialist'
+        $created[0].Department | Should -Be 'IT'
+        $created[0].Company | Should -Be 'Abd El Aziz El Sallab'
+        $created[0].Manager | Should -Be 'CN=IT Manager,OU=IT,DC=bash,DC=local'
+        $created[0].Office | Should -Be 'HQ - Cairo'
+    }
+
+    It 'copies normal groups and never a privileged one' {
+        Invoke-AdScript 'Copy-ADUser.ps1' @{
+            SourceUser     = 'ahmed_ali'
+            SamAccountName = 'ea'
+            GivenName      = 'Eslam'
+            Surname        = 'Ali'
+            Password       = $script:Password
+            HomeRoot       = $script:HomeRoot
+            ProfileRoot    = $script:ProfileRoot
+        }
+
+        $added = @($script:AD.Calls | Where-Object Cmdlet -eq 'Add-ADGroupMember')
+        $added.Count | Should -Be 1
+        $added[0].Group | Should -Be 'SOC_Team'
+        @($added | Where-Object Group -eq 'Domain Admins').Count | Should -Be 0
+    }
+
+    It 'skips an account that already exists and changes nothing' {
+        $script:AD.Users['ea'] = [pscustomobject]@{
+            SamAccountName    = 'ea'
+            DistinguishedName = 'CN=Eslam_Ali,OU=SOC,DC=bash,DC=local'
+        }
+
+        Invoke-AdScript 'Copy-ADUser.ps1' @{
+            SourceUser     = 'ahmed_ali'
+            SamAccountName = 'ea'
+            GivenName      = 'Eslam'
+            Surname        = 'Ali'
+            Password       = $script:Password
+            HomeRoot       = $script:HomeRoot
+            ProfileRoot    = $script:ProfileRoot
+        }
+
+        @($script:AD.Calls | Where-Object Cmdlet -eq 'New-ADUser').Count | Should -Be 0
+        @($script:AD.Calls | Where-Object Cmdlet -eq 'Add-ADGroupMember').Count | Should -Be 0
+    }
+
+    It 'refuses when the UPN is already in use' {
+        $script:AD.Users['eslam'] = [pscustomobject]@{
+            SamAccountName    = 'eslam'
+            UserPrincipalName = 'ea@bash.local'
+        }
+
+        Invoke-AdScript 'Copy-ADUser.ps1' @{
+            SourceUser     = 'ahmed_ali'
+            SamAccountName = 'ea'
+            GivenName      = 'Eslam'
+            Surname        = 'Ali'
+            Password       = $script:Password
+            HomeRoot       = $script:HomeRoot
+            ProfileRoot    = $script:ProfileRoot
+        }
+
+        @($script:AD.Calls | Where-Object Cmdlet -eq 'New-ADUser').Count | Should -Be 0
+    }
+
+    It 'creates nothing and prompts for nothing with -WhatIf' {
+        Invoke-AdScript 'Copy-ADUser.ps1' @{
+            SourceUser     = 'ahmed_ali'
+            SamAccountName = 'ea'
+            GivenName      = 'Eslam'
+            Surname        = 'Ali'
+            Password       = $script:Password
+            HomeRoot       = $script:HomeRoot
+            ProfileRoot    = $script:ProfileRoot
+            WhatIf         = $true
+        }
+
+        $script:AD.Prompts.Count | Should -Be 0
+        @($script:AD.Calls | Where-Object Cmdlet -eq 'New-ADUser').Count | Should -Be 0
+        Test-Path -LiteralPath (Join-Path $script:HomeRoot 'ea') | Should -BeFalse
     }
 }

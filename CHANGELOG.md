@@ -4,6 +4,33 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] - 2026-11-19
+
+### Added
+
+- `Copy-ADUser.ps1` — clones a template account into a new user: same OU, Title,
+  Department, Company, Manager, Office, address fields, phone, description, logon hours,
+  Logon Workstations, `PasswordNeverExpires`, `CannotChangePassword` and every
+  non-privileged group. The password and the SID are never copied; thirteen built-in
+  privileged groups are matched by SID and skipped.
+- The new account is named after the person (`CN=Firstname_Lastname`) while the SAM stays
+  short. The home folder follows the SAM (`Home\ea`), the roaming profile follows the full
+  name (`Profiles\Eslam_Ali`). `-DisplayName`, `-HomeFolderName` and `-ProfileFolderName`
+  override either convention.
+- New home and profile folders break NTFS inheritance and grant Full Control only to the
+  new user, Administrators and SYSTEM.
+- A folder that already exists with a stale ACL is repaired instead of skipped: the
+  script compares the SID on the folder with the new account's SID, reports `[WARN]` and
+  adds the missing entry, so an account recreated with a new RID still reaches its files.
+- Interactive runs ask for the two folder roots with a default of `\\<this computer>\Home`
+  and `\\<this computer>\Profiles`; a single dash skips that folder.
+- Seven Pester tests for the copy rules — 38 tests in total.
+
+### Changed
+
+- README: nine scripts, a new row in the contents table, the copy rules in the safety
+  model, and the naming conventions under Notes and limits.
+
 ## [1.1.0] - 2026-11-05
 
 ### Added
